@@ -1,0 +1,11 @@
+name: mlflow-credit-scoring-env
+channels:
+  - defaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+    - mlflow==2.13.0   # Mengunci versi untuk stabilitas
+    - pandas==2.2.0
+    - scikit-learn==1.4.0
+    - dagshub
