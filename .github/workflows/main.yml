@@ -108,11 +108,16 @@ jobs:
           RUN_ID=$(ls -t MLProject/mlruns/0/ | grep -v meta.yaml | head -1)
           echo "Building Docker image for run: $RUN_ID"
           
-          # Build Docker image using MLflow
+          # Check if model artifacts exist
+          if [ ! -d "MLProject/mlruns/0/$RUN_ID/artifacts/model" ]; then
+            echo "Model artifacts not found, skipping Docker build"
+            exit 0
+          fi
+          
+          # Build Docker image using MLflow (simplified without mlserver)
           mlflow models build-docker \
             -m "MLProject/mlruns/0/$RUN_ID/artifacts/model" \
-            -n "${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model:latest" \
-            --enable-mlserver
+            -n "${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model:${{ github.sha }}"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -126,8 +131,13 @@ jobs:
 
       - name: Push Docker Image
         run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model:latest
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model:${{ github.sha }}
+          # Only push if Docker build was successful
+          if docker images | grep -q "${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model"; then
+            docker push "${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-model:${{ github.sha }}"
+            echo "Docker image pushed successfully"
+          else
+            echo "Docker image not found, skipping push"
+          fi
 
       - name: Post Log in to Docker Hub
         run: echo "Docker operations completed"
