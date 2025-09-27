@@ -44,7 +44,7 @@ jobs:
         id: mlflow_run
         run: |
           cd MLProject
-          mlflow run . --no-conda
+          mlflow run . --env-manager=local
           echo "MLflow project completed"
 
       - name: Install Python dependencies
