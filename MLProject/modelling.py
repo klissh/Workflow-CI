@@ -11,9 +11,9 @@ if __name__ == "__main__":
     # Set MLflow tracking URI untuk local
     mlflow.set_tracking_uri("file:./mlruns")
     
-    # Set experiment name
-    experiment_name = "CI_CD_Credit_Scoring"
-    mlflow.set_experiment(experiment_name)
+    # Jangan set experiment name karena sudah diatur oleh mlflow run
+    # experiment_name = "CI_CD_Credit_Scoring"
+    # mlflow.set_experiment(experiment_name)
 
     # 1. Muat Dataset
     try:
