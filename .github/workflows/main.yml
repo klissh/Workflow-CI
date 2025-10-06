@@ -1,4 +1,4 @@
-name: ML CI/CD Workflow (Basic, Skilled, Advanced)
+name: ML CI/CD Workflow (Skilled, Advanced)
 
 on:
   push:
@@ -6,48 +6,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  basic-train:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install mlflow pandas numpy scikit-learn xgboost lightgbm imbalanced-learn seaborn matplotlib
-
-      - name: Prepare dataset
-        run: |
-          cd Workflow-CI/MLProject
-          mkdir -p dataset_preprocessing artefak
-          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
-            echo "DATASET_PATH=dataset_preprocessing/creditcard_processed.csv" >> $GITHUB_ENV
-            echo "Using existing creditcard_processed.csv"
-          else
-            echo "creditcard_processed.csv not found; generating synthetic dataset (CI fallback)"
-            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
-            echo "DATASET_PATH=dataset_preprocessing/stroke_dataset_preprocessing.csv" >> $GITHUB_ENV
-          fi
-
-      - name: Run modelling.py
-        working-directory: Workflow-CI/MLProject
-        run: python modelling.py --data_path "${{ env.DATASET_PATH }}" --artefak_dir artefak
-
-      - name: Upload artefak
-        uses: actions/upload-artifact@v4
-        with:
-          name: basic-artefak
-          path: Workflow-CI/MLProject/artefak/**
-
   skilled-mlproject:
     runs-on: ubuntu-latest
-    needs: basic-train
     env:
       MLFLOW_TRACKING_URI: file:/tmp/mlruns
     steps:
@@ -57,29 +17,25 @@ jobs:
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: '3.12'
           channels: defaults
           auto-update-conda: true
           activate-environment: base
 
-      - name: Install MLflow CLI
+      - name: Create/Update environment from conda.yaml
         run: |
-          python -m pip install --upgrade pip
-          pip install mlflow
+          conda env update -n mlflow-credit-scoring-env -f Workflow-CI/MLProject/conda.yaml || conda env create -n mlflow-credit-scoring-env -f Workflow-CI/MLProject/conda.yaml
 
-      - name: Prepare dataset for MLProject
+      - name: Verify dataset presence
         run: |
-          cd Workflow-CI/MLProject
-          mkdir -p dataset_preprocessing
-          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
-            echo "Using creditcard_processed.csv"
+          if [ -f "Workflow-CI/MLProject/dataset_preprocessing/creditcard_processed.csv" ]; then
+            echo "Dataset found"
           else
-            echo "Generating synthetic dataset for MLProject"
-            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
+            echo "Dataset Workflow-CI/MLProject/dataset_preprocessing/creditcard_processed.csv not found" && exit 1
           fi
 
-      - name: Run MLflow project (conda)
-        run: mlflow run Workflow-CI/MLProject --env-manager=conda
+      - name: Run MLflow project (conda env-manager)
+        run: |
+          conda run -n mlflow-credit-scoring-env mlflow run Workflow-CI/MLProject --env-manager=conda
 
       - name: Package model artifacts
         run: |
@@ -106,29 +62,25 @@ jobs:
       - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          python-version: '3.12'
           channels: defaults
           auto-update-conda: true
-          activate-environment: base
+          activate-environment: mlflow-credit-scoring-env
 
-      - name: Install MLflow CLI
+      - name: Create/Update environment from conda.yaml
         run: |
-          python -m pip install --upgrade pip
-          pip install mlflow
+          conda env update -n mlflow-credit-scoring-env -f Workflow-CI/MLProject/conda.yaml || conda env create -n mlflow-credit-scoring-env -f Workflow-CI/MLProject/conda.yaml
 
-      - name: Prepare dataset for Advanced run
+      - name: Verify dataset presence
         run: |
-          cd Workflow-CI/MLProject
-          mkdir -p dataset_preprocessing
-          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
-            echo "Using creditcard_processed.csv"
+          if [ -f "Workflow-CI/MLProject/dataset_preprocessing/creditcard_processed.csv" ]; then
+            echo "Dataset found"
           else
-            echo "Generating synthetic dataset for Advanced run"
-            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
+            echo "Dataset Workflow-CI/MLProject/dataset_preprocessing/creditcard_processed.csv not found" && exit 1
           fi
 
-      - name: Run MLflow project (conda)
-        run: mlflow run Workflow-CI/MLProject --env-manager=conda
+      - name: Run MLflow project (conda env-manager)
+        run: |
+          conda run -n mlflow-credit-scoring-env mlflow run Workflow-CI/MLProject --env-manager=conda
 
       - name: Upload to Google Drive
         run: echo "Skipping Google Drive upload in CI (disabled)"
