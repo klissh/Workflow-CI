@@ -59,44 +59,72 @@ jobs:
         env:
           GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
         run: |
-          # Create credentials file
-          echo "$GOOGLE_DRIVE_CREDENTIALS" > credentials.json
-          
-          # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
+          # Decode base64 credentials secret into JSON file; validate JSON
+          if [ -z "$GOOGLE_DRIVE_CREDENTIALS" ]; then
+            echo "GOOGLE_DRIVE_CREDENTIALS is empty; skipping Google Drive upload"
+          else
+            echo "$GOOGLE_DRIVE_CREDENTIALS" | base64 -d > credentials.json || { echo "Failed to decode base64 GOOGLE_DRIVE_CREDENTIALS"; exit 1; }
+
+            python - << 'PY'
+import json,sys
+try:
+    with open('credentials.json','r') as f:
+        json.load(f)
+    print('Credentials JSON is valid.')
+except Exception as e:
+    print('Invalid credentials JSON:', e)
+    sys.exit(1)
+PY
+
+            # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
+            TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
+            echo "Tracking path: $TRACKING_PATH"
+
+            # Find the latest run directory
+            RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
+            echo "Latest run ID: $RUN_ID"
+
+            # Create a simple Python script to upload to Google Drive
+            cat > upload_to_drive.py << 'EOF'
+import os
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from googleapiclient.http import MediaFileUpload
+
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
+service = build('drive', 'v3', credentials=creds)
+
+import sys
+model_path = sys.argv[1]
+
+if os.path.exists(model_path):
+    import shutil
+    shutil.make_archive('model_artifacts', 'zip', model_path)
+    file_metadata = {'name': f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
+    media = MediaFileUpload('model_artifacts.zip', mimetype='application/zip')
+    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
+else:
+    print('Model artifacts not found')
+EOF
+
+            MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
+            python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+          fi
+
+      - name: Package model artifacts
+        run: |
           TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
-          echo "Tracking path: $TRACKING_PATH"
-          
-          # Find the latest run directory
           RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
-          echo "Latest run ID: $RUN_ID"
-          
-          # Create a simple Python script to upload to Google Drive
-          cat > upload_to_drive.py << 'EOF'
-          import os
-          from googleapiclient.discovery import build
-          from google.oauth2.service_account import Credentials
-          from googleapiclient.http import MediaFileUpload
-          
-          SCOPES = ['https://www.googleapis.com/auth/drive.file']
-          creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
-          service = build('drive', 'v3', credentials=creds)
-          
-          import sys
-          model_path = sys.argv[1]
-          
-          if os.path.exists(model_path):
-              import shutil
-              shutil.make_archive('model_artifacts', 'zip', model_path)
-              file_metadata = {'name': f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
-              media = MediaFileUpload('model_artifacts.zip', mimetype='application/zip')
-              file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-              print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
-          else:
-              print('Model artifacts not found')
-          EOF
-          
-          MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
-          python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+          zip -r "model_artifacts_${RUN_ID}.zip" "$TRACKING_PATH/0/$RUN_ID/artifacts/model"
+
+      - name: Upload artifact to GitHub
+        uses: actions/upload-artifact@v3
+        with:
+          name: model_artifacts_${{ env.RUN_ID }}
+          path: model_artifacts_${{ env.RUN_ID }}.zip
 
       - name: Post Set up Python 3.12.7
         run: echo "Python setup completed"
@@ -105,49 +133,83 @@ jobs:
         run: echo "Checkout completed"
 
       - name: Build Docker Model
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          echo "=== Skipping Docker Build to Avoid Complexity ==="
-          echo "Docker build with MLflow often causes issues in CI environment"
-          echo "Model artifacts are successfully saved and can be deployed separately"
-          
+          if [ -z "$DOCKERHUB_USERNAME" ]; then
+            echo "Missing DOCKERHUB_USERNAME secret. Please set it in GitHub Actions secrets."; exit 1;
+          fi
+
           # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
           TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
-          
+
           # Find the latest run directory
           RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
           echo "Latest model run ID: $RUN_ID"
-          
+
           # Verify model artifacts exist
           if [ -d "$TRACKING_PATH/0/$RUN_ID/artifacts/model" ]; then
             echo "✅ Model artifacts found at: $TRACKING_PATH/0/$RUN_ID/artifacts/model"
-            ls -la "$TRACKING_PATH/0/$RUN_ID/artifacts/model/"
           else
-            echo "❌ Model artifacts not found"
+            echo "❌ Model artifacts not found"; exit 1;
           fi
-          
-          echo "=== Docker Build Skipped Successfully ==="
+
+          # Prepare build context
+          mkdir -p build/model
+          cp -r "$TRACKING_PATH/0/$RUN_ID/artifacts/model/" build/model/
+
+          # Generate Dockerfile for serving the MLflow model
+          cat > Dockerfile << 'EOF'
+          FROM python:3.12-slim
+          WORKDIR /app
+
+          # Copy model artifacts
+          COPY build/model /app/model
+
+          # Install Python dependencies
+          RUN pip install --no-cache-dir --upgrade pip && \
+              pip install --no-cache-dir uvicorn && \
+              if [ -f /app/model/requirements.txt ]; then pip install --no-cache-dir -r /app/model/requirements.txt; fi
+
+          EXPOSE 1234
+          CMD ["python","-m","mlflow","models","serve","--model-uri","/app/model","--port","1234","--no-conda"]
+          EOF
+
+          IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
+          docker build -t "$IMAGE_BASE:latest" .
+          docker tag "$IMAGE_BASE:latest" "$IMAGE_BASE:${GITHUB_SHA}"
+
 
       - name: Docker Hub Operations
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "=== Skipping Docker Hub Operations ==="
-          echo "Docker build was skipped, so no Docker operations needed"
-          echo "Model artifacts are available for manual deployment if needed"
-          echo "✅ Docker Hub operations skipped successfully"
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "Missing Docker Hub secrets. Please set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN."; exit 1;
+          fi
+
+          IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          docker push "$IMAGE_BASE:latest"
+          docker push "$IMAGE_BASE:${GITHUB_SHA}"
+
+          echo "✅ Docker image pushed to Docker Hub: $IMAGE_BASE (tags: latest, ${GITHUB_SHA})"
 
       - name: Workflow Summary
         run: |
-          echo "=== CI/CD Workflow Completed Successfully ==="
+          echo "=== CI/CD Workflow Completed ==="
           echo "✅ Model training completed"
           echo "✅ Model artifacts saved to MLflow"
-          echo "✅ Google Drive upload attempted"
-          echo "✅ All core ML operations completed"
+          echo "✅ Google Drive upload attempted (with JSON validation)"
+          echo "✅ GitHub artifact upload enabled (fallback)"
           echo ""
           echo "=== Workflow Status ==="
           echo "Status: SUCCESS"
-          echo "Docker operations: SKIPPED (to avoid complexity)"
-          echo "Model deployment: Available via MLflow artifacts"
+          echo "Docker operations: ATTEMPTED (build and push)"
+          echo "Model deployment: Available via MLflow artifacts and Docker image"
           echo ""
           echo "=== Next Steps ==="
-          echo "- Model artifacts are ready for manual deployment"
-          echo "- Check Google Drive for uploaded model files"
-          echo "- Use MLflow UI to view experiment results"
+          echo "- Download artifacts from the run (tab Artifacts) or check Google Drive"
+          echo "- Verify Docker Hub repository for pushed image"
+          echo "- Use MLflow UI or container's /invocations endpoint for testing"
