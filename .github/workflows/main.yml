@@ -1,90 +1,83 @@
-name: MLflow CI Workflow - Advanced
+name: ML CI/CD Workflow (Basic, Skilled, Advanced)
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  train-build-push:
+  basic-train:
     runs-on: ubuntu-latest
-    env:
-      MLFLOW_TRACKING_URI: file:/tmp/mlruns
-    
     steps:
-      - name: Set up job
-        run: echo "Starting MLflow CI workflow"
-
-      - name: Run actions/checkout@v3
+      - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          lfs: true
 
-      - name: Set up Python 3.12.7
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.12.7'
-
-      - name: Check Env
-        run: |
-          python --version
-          pip --version
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install setuptools wheel
-          pip install mlflow==2.13.0 pandas==2.2.0 scikit-learn==1.4.0 dagshub
+          python -m pip install --upgrade pip
+          pip install mlflow pandas numpy scikit-learn xgboost lightgbm imbalanced-learn seaborn matplotlib
 
-      - name: Set MLflow Tracking URI
+      - name: Prepare dataset
         run: |
-          echo "Setting MLFLOW_TRACKING_URI to $MLFLOW_TRACKING_URI"
-          echo "MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI" >> $GITHUB_ENV
-
-      - name: Run mlflow project
-        id: mlflow_run
-        run: |
-          cd MLProject
-          mlflow run . --env-manager=local
-          echo "MLflow project completed"
-
-      - name: Install Python dependencies
-        run: |
-          pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-
-      - name: Upload to Google Drive
-        env:
-          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-        run: |
-          # Decode base64 credentials secret into JSON file; validate JSON
-          if [ -z "$GOOGLE_DRIVE_CREDENTIALS" ]; then
-            echo "GOOGLE_DRIVE_CREDENTIALS is empty; skipping Google Drive upload"
+          cd Workflow-CI/MLProject
+          mkdir -p dataset_preprocessing
+          if [ -f "dataset_preprocessing/stroke_dataset_preprocessing.csv" ]; then
+            echo "Dataset found"
           else
-            echo "$GOOGLE_DRIVE_CREDENTIALS" | base64 -d > credentials.json || { echo "Failed to decode base64 GOOGLE_DRIVE_CREDENTIALS"; exit 1; }
-            python -c "import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')" || { echo "Invalid credentials JSON"; exit 1; }
-
-            # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
-            TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
-            echo "Tracking path: $TRACKING_PATH"
-
-            # Find the latest run directory
-            RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
-            echo "Latest run ID: $RUN_ID"
-
-            MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
-            python -c 'import os,sys,shutil; from googleapiclient.discovery import build; from google.oauth2.service_account import Credentials; from googleapiclient.http import MediaFileUpload; SCOPES=["https://www.googleapis.com/auth/drive.file"]; creds=Credentials.from_service_account_file("credentials.json", scopes=SCOPES); service=build("drive","v3",credentials=creds); model_path=sys.argv[1];
-if os.path.exists(model_path):
-    shutil.make_archive("model_artifacts","zip",model_path)
-    file_metadata={"name": f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
-    media=MediaFileUpload("model_artifacts.zip", mimetype="application/zip")
-    file=service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    print(f"Model uploaded to Google Drive with ID: {file.get("id")}")
-else:
-    print("Model artifacts not found")' "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+            echo "Dataset missing; generating synthetic dataset (CI only)"
+            python - <<'PY'
+import numpy as np, pandas as pd
+np.random.seed(42)
+n=500
+df=pd.DataFrame({
+  "age":np.random.randint(20,80,size=n),
+  "avg_glucose_level":np.random.uniform(70,200,size=n),
+  "bmi":np.random.uniform(18,35,size=n),
+  "hypertension":np.random.randint(0,2,size=n),
+  "heart_disease":np.random.randint(0,2,size=n),
+  "smoking_status":np.random.randint(0,3,size=n),
+  "stroke":np.random.randint(0,2,size=n),
+})
+df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
+PY
           fi
+
+      - name: Run modelling.py
+        working-directory: Workflow-CI/MLProject
+        run: python modelling.py --data_path dataset_preprocessing/stroke_dataset_preprocessing.csv --artefak_dir artefak
+
+      - name: Upload artefak
+        uses: actions/upload-artifact@v4
+        with:
+          name: basic-artefak
+          path: Workflow-CI/MLProject/artefak/**
+
+  skilled-mlproject:
+    runs-on: ubuntu-latest
+    needs: basic-train
+    env:
+      MLFLOW_TRACKING_URI: file:/tmp/mlruns
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlflow dagshub pandas scikit-learn xgboost lightgbm imbalanced-learn seaborn matplotlib
+
+      - name: Run MLflow project
+        run: mlflow run Workflow-CI/MLProject --env-manager=local
 
       - name: Package model artifacts
         run: |
@@ -93,96 +86,104 @@ else:
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           zip -r "model_artifacts_${RUN_ID}.zip" "$TRACKING_PATH/0/$RUN_ID/artifacts/model"
 
-      - name: Upload artifact to GitHub
-        uses: actions/upload-artifact@v3
+      - name: Upload MLflow artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: model_artifacts_${{ env.RUN_ID }}
+          name: skilled-model-artifacts-${{ env.RUN_ID }}
           path: model_artifacts_${{ env.RUN_ID }}.zip
 
-      - name: Post Set up Python 3.12.7
-        run: echo "Python setup completed"
+  advanced-deploy:
+    runs-on: ubuntu-latest
+    needs: skilled-mlproject
+    env:
+      MLFLOW_TRACKING_URI: file:/tmp/mlruns
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Post Run actions/checkout@v3
-        run: echo "Checkout completed"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
 
-      - name: Build Docker Model
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlflow pandas scikit-learn google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Run MLflow project (generate artifacts)
+        run: mlflow run Workflow-CI/MLProject --env-manager=local
+
+      - name: Upload to Google Drive
+        env:
+          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+        run: |
+          if [ -z "$GOOGLE_DRIVE_CREDENTIALS" ]; then
+            echo "GOOGLE_DRIVE_CREDENTIALS not set, skipping Google Drive upload"
+          else
+            echo "$GOOGLE_DRIVE_CREDENTIALS" | base64 -d > credentials.json || { echo "Failed to decode credentials"; exit 1; }
+            python - <<'PY'
+import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')
+PY
+            TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
+            RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
+            MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
+            cat > upload_to_drive.py << 'PY'
+import os, sys, shutil
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from googleapiclient.http import MediaFileUpload
+
+SCOPES=["https://www.googleapis.com/auth/drive.file"]
+creds=Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+service=build("drive","v3",credentials=creds)
+model_path=sys.argv[1]
+if os.path.exists(model_path):
+    shutil.make_archive("model_artifacts","zip",model_path)
+    file_metadata={"name": f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
+    media=MediaFileUpload("model_artifacts.zip", mimetype="application/zip")
+    file=service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
+else:
+    print("Model artifacts not found")
+PY
+            python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+          fi
+
+      - name: Build Docker image
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ]; then
-            echo "Missing DOCKERHUB_USERNAME secret. Please set it in GitHub Actions secrets."; exit 1;
+            echo "Missing DOCKERHUB_USERNAME secret"; exit 1;
           fi
-
-          # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
           TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
-
-          # Find the latest run directory
           RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
-          echo "Latest model run ID: $RUN_ID"
-
-          # Verify model artifacts exist
-          if [ -d "$TRACKING_PATH/0/$RUN_ID/artifacts/model" ]; then
-            echo "✅ Model artifacts found at: $TRACKING_PATH/0/$RUN_ID/artifacts/model"
-          else
-            echo "❌ Model artifacts not found"; exit 1;
-          fi
-
-          # Prepare build context
           mkdir -p build/model
           cp -r "$TRACKING_PATH/0/$RUN_ID/artifacts/model/" build/model/
-
-          # Generate Dockerfile for serving the MLflow model
           cat > Dockerfile << 'EOF'
 FROM python:3.12-slim
 WORKDIR /app
-
-# Copy model artifacts
 COPY build/model /app/model
-
-# Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir uvicorn && \
+    pip install --no-cache-dir uvicorn mlflow && \
     if [ -f /app/model/requirements.txt ]; then pip install --no-cache-dir -r /app/model/requirements.txt; fi
-
 EXPOSE 1234
 CMD ["python","-m","mlflow","models","serve","--model-uri","/app/model","--port","1234","--no-conda"]
 EOF
-
           IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
           docker build -t "$IMAGE_BASE:latest" .
           docker tag "$IMAGE_BASE:latest" "$IMAGE_BASE:${GITHUB_SHA}"
 
-
-      - name: Docker Hub Operations
+      - name: Push Docker image
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
-            echo "Missing Docker Hub secrets. Please set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN."; exit 1;
+            echo "Missing Docker Hub secrets"; exit 1;
           fi
-
-          IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
           echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+          IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
           docker push "$IMAGE_BASE:latest"
           docker push "$IMAGE_BASE:${GITHUB_SHA}"
-
-          echo "✅ Docker image pushed to Docker Hub: $IMAGE_BASE (tags: latest, ${GITHUB_SHA})"
-
-      - name: Workflow Summary
-        run: |
-          echo "=== CI/CD Workflow Completed ==="
-          echo "✅ Model training completed"
-          echo "✅ Model artifacts saved to MLflow"
-          echo "✅ Google Drive upload attempted (with JSON validation)"
-          echo "✅ GitHub artifact upload enabled (fallback)"
-          echo ""
-          echo "=== Workflow Status ==="
-          echo "Status: SUCCESS"
-          echo "Docker operations: ATTEMPTED (build and push)"
-          echo "Model deployment: Available via MLflow artifacts and Docker image"
-          echo ""
-          echo "=== Next Steps ==="
-          echo "- Download artifacts from the run (tab Artifacts) or check Google Drive"
-          echo "- Verify Docker Hub repository for pushed image"
-          echo "- Use MLflow UI or container's /invocations endpoint for testing"
