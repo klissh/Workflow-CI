@@ -64,17 +64,7 @@ jobs:
             echo "GOOGLE_DRIVE_CREDENTIALS is empty; skipping Google Drive upload"
           else
             echo "$GOOGLE_DRIVE_CREDENTIALS" | base64 -d > credentials.json || { echo "Failed to decode base64 GOOGLE_DRIVE_CREDENTIALS"; exit 1; }
-
-            python - << 'PY'
-import json,sys
-try:
-    with open('credentials.json','r') as f:
-        json.load(f)
-    print('Credentials JSON is valid.')
-except Exception as e:
-    print('Invalid credentials JSON:', e)
-    sys.exit(1)
-PY
+            python -c "import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')" || { echo "Invalid credentials JSON"; exit 1; }
 
             # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
             TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
@@ -84,33 +74,16 @@ PY
             RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
             echo "Latest run ID: $RUN_ID"
 
-            # Create a simple Python script to upload to Google Drive
-            cat > upload_to_drive.py << 'EOF'
-import os
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
-from googleapiclient.http import MediaFileUpload
-
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
-creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
-service = build('drive', 'v3', credentials=creds)
-
-import sys
-model_path = sys.argv[1]
-
-if os.path.exists(model_path):
-    import shutil
-    shutil.make_archive('model_artifacts', 'zip', model_path)
-    file_metadata = {'name': f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
-    media = MediaFileUpload('model_artifacts.zip', mimetype='application/zip')
-    file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-    print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
-else:
-    print('Model artifacts not found')
-EOF
-
             MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
-            python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+            python -c 'import os,sys,shutil; from googleapiclient.discovery import build; from google.oauth2.service_account import Credentials; from googleapiclient.http import MediaFileUpload; SCOPES=["https://www.googleapis.com/auth/drive.file"]; creds=Credentials.from_service_account_file("credentials.json", scopes=SCOPES); service=build("drive","v3",credentials=creds); model_path=sys.argv[1];
+if os.path.exists(model_path):
+    shutil.make_archive("model_artifacts","zip",model_path)
+    file_metadata={"name": f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
+    media=MediaFileUpload("model_artifacts.zip", mimetype="application/zip")
+    file=service.files().create(body=file_metadata, media_body=media, fields="id").execute()
+    print(f"Model uploaded to Google Drive with ID: {file.get("id")}")
+else:
+    print("Model artifacts not found")' "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
           fi
 
       - name: Package model artifacts
@@ -160,20 +133,20 @@ EOF
 
           # Generate Dockerfile for serving the MLflow model
           cat > Dockerfile << 'EOF'
-          FROM python:3.12-slim
-          WORKDIR /app
+FROM python:3.12-slim
+WORKDIR /app
 
-          # Copy model artifacts
-          COPY build/model /app/model
+# Copy model artifacts
+COPY build/model /app/model
 
-          # Install Python dependencies
-          RUN pip install --no-cache-dir --upgrade pip && \
-              pip install --no-cache-dir uvicorn && \
-              if [ -f /app/model/requirements.txt ]; then pip install --no-cache-dir -r /app/model/requirements.txt; fi
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir uvicorn && \
+    if [ -f /app/model/requirements.txt ]; then pip install --no-cache-dir -r /app/model/requirements.txt; fi
 
-          EXPOSE 1234
-          CMD ["python","-m","mlflow","models","serve","--model-uri","/app/model","--port","1234","--no-conda"]
-          EOF
+EXPOSE 1234
+CMD ["python","-m","mlflow","models","serve","--model-uri","/app/model","--port","1234","--no-conda"]
+EOF
 
           IMAGE_BASE="$DOCKERHUB_USERNAME/credit-scoring"
           docker build -t "$IMAGE_BASE:latest" .
