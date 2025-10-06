@@ -54,15 +54,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: '3.12'
+          channels: defaults
+          auto-update-conda: true
+          activate-environment: base
 
-      - name: Install dependencies
+      - name: Install MLflow CLI
         run: |
           python -m pip install --upgrade pip
-          pip install mlflow dagshub pandas scikit-learn xgboost lightgbm imbalanced-learn seaborn matplotlib
+          pip install mlflow
 
       - name: Prepare dataset for MLProject
         run: |
@@ -75,8 +78,8 @@ jobs:
             python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
           fi
 
-      - name: Run MLflow project
-        run: mlflow run Workflow-CI/MLProject --env-manager=local
+      - name: Run MLflow project (conda)
+        run: mlflow run Workflow-CI/MLProject --env-manager=conda
 
       - name: Package model artifacts
         run: |
@@ -100,15 +103,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: '3.12'
+          channels: defaults
+          auto-update-conda: true
+          activate-environment: base
 
-      - name: Install dependencies
+      - name: Install MLflow CLI
         run: |
           python -m pip install --upgrade pip
-          pip install mlflow pandas scikit-learn google-api-python-client google-auth-httplib2 google-auth-oauthlib
+          pip install mlflow
 
       - name: Prepare dataset for Advanced run
         run: |
@@ -121,8 +127,8 @@ jobs:
             python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
           fi
 
-      - name: Run MLflow project (generate artifacts)
-        run: mlflow run Workflow-CI/MLProject --env-manager=local
+      - name: Run MLflow project (conda)
+        run: mlflow run Workflow-CI/MLProject --env-manager=conda
 
       - name: Upload to Google Drive
         run: echo "Skipping Google Drive upload in CI (disabled)"
