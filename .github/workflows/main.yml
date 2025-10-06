@@ -125,9 +125,8 @@ jobs:
         run: mlflow run Workflow-CI/MLProject --env-manager=local
 
       - name: Upload to Google Drive
-        env:
-          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
         run: |
+          echo "Skipping Google Drive upload in CI (temporarily disabled to fix YAML parse errors)"
           if [ -z "$GOOGLE_DRIVE_CREDENTIALS" ]; then
             echo "GOOGLE_DRIVE_CREDENTIALS not set, skipping Google Drive upload"
           else
