@@ -1,6 +1,7 @@
 import mlflow
 import pandas as pd
 import sys
+import os
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
@@ -8,8 +9,18 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 if __name__ == "__main__":
     print("--- Memulai Training Model untuk CI/CD ---", file=sys.stderr)
 
-    # Set MLflow tracking URI untuk local
-    mlflow.set_tracking_uri("file:./mlruns")
+    # Konfigurasi MLflow Tracking URI yang aman untuk CI (hindari path Windows)
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
+    if tracking_uri:
+        mlflow.set_tracking_uri(tracking_uri)
+    else:
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            # Gunakan lokasi sementara di runner Linux agar tidak bentrok dengan artefak Windows yang ter-commit
+            mlflow.set_tracking_uri("file:/tmp/mlruns")
+        else:
+            # Jalankan lokal di folder proyek
+            mlflow.set_tracking_uri("file:./mlruns")
+    print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}", file=sys.stderr)
     
     # Jangan set experiment name karena sudah diatur oleh mlflow run
     # experiment_name = "CI_CD_Credit_Scoring"

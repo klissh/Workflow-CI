@@ -11,6 +11,8 @@ on:
 jobs:
   train-build-push:
     runs-on: ubuntu-latest
+    env:
+      MLFLOW_TRACKING_URI: file:/tmp/mlruns
     
     steps:
       - name: Set up job
@@ -38,7 +40,9 @@ jobs:
           pip install mlflow==2.13.0 pandas==2.2.0 scikit-learn==1.4.0 dagshub
 
       - name: Set MLflow Tracking URI
-        run: echo "MLflow tracking URI set to local"
+        run: |
+          echo "Setting MLFLOW_TRACKING_URI to $MLFLOW_TRACKING_URI"
+          echo "MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI" >> $GITHUB_ENV
 
       - name: Run mlflow project
         id: mlflow_run
@@ -58,43 +62,41 @@ jobs:
           # Create credentials file
           echo "$GOOGLE_DRIVE_CREDENTIALS" > credentials.json
           
+          # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
+          TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
+          echo "Tracking path: $TRACKING_PATH"
+          
           # Find the latest run directory
-          RUN_ID=$(ls -t MLProject/mlruns/0/ | grep -v meta.yaml | head -1)
+          RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
           echo "Latest run ID: $RUN_ID"
           
           # Create a simple Python script to upload to Google Drive
           cat > upload_to_drive.py << 'EOF'
           import os
-          import json
           from googleapiclient.discovery import build
           from google.oauth2.service_account import Credentials
           from googleapiclient.http import MediaFileUpload
           
-          # Load credentials
           SCOPES = ['https://www.googleapis.com/auth/drive.file']
           creds = Credentials.from_service_account_file('credentials.json', scopes=SCOPES)
           service = build('drive', 'v3', credentials=creds)
           
-          # Upload model artifacts
           import sys
-          run_id = sys.argv[1]
-          model_path = f'MLProject/mlruns/0/{run_id}/artifacts/model'
+          model_path = sys.argv[1]
           
           if os.path.exists(model_path):
-              # Create a zip of the model directory
               import shutil
               shutil.make_archive('model_artifacts', 'zip', model_path)
-              
-              # Upload to Google Drive
-              file_metadata = {'name': f'model_artifacts_{run_id}.zip'}
+              file_metadata = {'name': f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
               media = MediaFileUpload('model_artifacts.zip', mimetype='application/zip')
               file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-              print(f'Model uploaded to Google Drive with ID: {file.get("id")}')
+              print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
           else:
               print('Model artifacts not found')
           EOF
           
-          python upload_to_drive.py $RUN_ID || echo "Google Drive upload failed, continuing..."
+          MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
+          python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
 
       - name: Post Set up Python 3.12.7
         run: echo "Python setup completed"
@@ -108,14 +110,17 @@ jobs:
           echo "Docker build with MLflow often causes issues in CI environment"
           echo "Model artifacts are successfully saved and can be deployed separately"
           
+          # Resolve tracking path from MLFLOW_TRACKING_URI (strip 'file:' prefix)
+          TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
+          
           # Find the latest run directory
-          RUN_ID=$(ls -t MLProject/mlruns/0/ | grep -v meta.yaml | head -1)
+          RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
           echo "Latest model run ID: $RUN_ID"
           
           # Verify model artifacts exist
-          if [ -d "MLProject/mlruns/0/$RUN_ID/artifacts/model" ]; then
-            echo "✅ Model artifacts found at: MLProject/mlruns/0/$RUN_ID/artifacts/model"
-            ls -la "MLProject/mlruns/0/$RUN_ID/artifacts/model/"
+          if [ -d "$TRACKING_PATH/0/$RUN_ID/artifacts/model" ]; then
+            echo "✅ Model artifacts found at: $TRACKING_PATH/0/$RUN_ID/artifacts/model"
+            ls -la "$TRACKING_PATH/0/$RUN_ID/artifacts/model/"
           else
             echo "❌ Model artifacts not found"
           fi
