@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -25,12 +25,13 @@ jobs:
       - name: Prepare dataset
         run: |
           cd Workflow-CI/MLProject
-          mkdir -p dataset_preprocessing
-          if [ -f "dataset_preprocessing/stroke_dataset_preprocessing.csv" ]; then
-            echo "Dataset found"
+          mkdir -p dataset_preprocessing artefak
+          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
+            echo "DATASET_PATH=dataset_preprocessing/creditcard_processed.csv" >> $GITHUB_ENV
+            echo "Using existing creditcard_processed.csv"
           else
-            echo "Dataset missing; generating synthetic dataset (CI only)"
-            python - <<'PY'
+            echo "creditcard_processed.csv not found; generating synthetic dataset (CI fallback)"
+            cat > synth_dataset.py << 'PY'
 import numpy as np, pandas as pd
 np.random.seed(42)
 n=500
@@ -45,11 +46,13 @@ df=pd.DataFrame({
 })
 df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
 PY
+            python synth_dataset.py
+            echo "DATASET_PATH=dataset_preprocessing/stroke_dataset_preprocessing.csv" >> $GITHUB_ENV
           fi
 
       - name: Run modelling.py
         working-directory: Workflow-CI/MLProject
-        run: python modelling.py --data_path dataset_preprocessing/stroke_dataset_preprocessing.csv --artefak_dir artefak
+        run: python modelling.py --data_path "${{ env.DATASET_PATH }}" --artefak_dir artefak
 
       - name: Upload artefak
         uses: actions/upload-artifact@v4
@@ -64,10 +67,10 @@ PY
       MLFLOW_TRACKING_URI: file:/tmp/mlruns
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -75,6 +78,32 @@ PY
         run: |
           python -m pip install --upgrade pip
           pip install mlflow dagshub pandas scikit-learn xgboost lightgbm imbalanced-learn seaborn matplotlib
+
+      - name: Prepare dataset for MLProject
+        run: |
+          cd Workflow-CI/MLProject
+          mkdir -p dataset_preprocessing
+          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
+            echo "Using creditcard_processed.csv"
+          else
+            echo "Generating synthetic dataset for MLProject"
+            cat > synth_dataset.py << 'PY'
+import numpy as np, pandas as pd
+np.random.seed(42)
+n=500
+df=pd.DataFrame({
+  "age":np.random.randint(20,80,size=n),
+  "avg_glucose_level":np.random.uniform(70,200,size=n),
+  "bmi":np.random.uniform(18,35,size=n),
+  "hypertension":np.random.randint(0,2,size=n),
+  "heart_disease":np.random.randint(0,2,size=n),
+  "smoking_status":np.random.randint(0,3,size=n),
+  "stroke":np.random.randint(0,2,size=n),
+})
+df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
+PY
+            python synth_dataset.py
+          fi
 
       - name: Run MLflow project
         run: mlflow run Workflow-CI/MLProject --env-manager=local
@@ -99,10 +128,10 @@ PY
       MLFLOW_TRACKING_URI: file:/tmp/mlruns
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
@@ -110,6 +139,32 @@ PY
         run: |
           python -m pip install --upgrade pip
           pip install mlflow pandas scikit-learn google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Prepare dataset for Advanced run
+        run: |
+          cd Workflow-CI/MLProject
+          mkdir -p dataset_preprocessing
+          if [ -f "dataset_preprocessing/creditcard_processed.csv" ]; then
+            echo "Using creditcard_processed.csv"
+          else
+            echo "Generating synthetic dataset for Advanced run"
+            cat > synth_dataset.py << 'PY'
+import numpy as np, pandas as pd
+np.random.seed(42)
+n=500
+df=pd.DataFrame({
+  "age":np.random.randint(20,80,size=n),
+  "avg_glucose_level":np.random.uniform(70,200,size=n),
+  "bmi":np.random.uniform(18,35,size=n),
+  "hypertension":np.random.randint(0,2,size=n),
+  "heart_disease":np.random.randint(0,2,size=n),
+  "smoking_status":np.random.randint(0,3,size=n),
+  "stroke":np.random.randint(0,2,size=n),
+})
+df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
+PY
+            python synth_dataset.py
+          fi
 
       - name: Run MLflow project (generate artifacts)
         run: mlflow run Workflow-CI/MLProject --env-manager=local
@@ -121,7 +176,7 @@ PY
           if [ -z "$GOOGLE_DRIVE_CREDENTIALS" ]; then
             echo "GOOGLE_DRIVE_CREDENTIALS not set, skipping Google Drive upload"
           else
-            echo "$GOOGLE_DRIVE_CREDENTIALS" | base64 -d > credentials.json || { echo "Failed to decode credentials"; exit 1; }
+            printf '%s' "$GOOGLE_DRIVE_CREDENTIALS" > credentials.json
             python - <<'PY'
 import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')
 PY
@@ -178,7 +233,7 @@ EOF
       - name: Push Docker image
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
             echo "Missing Docker Hub secrets"; exit 1;
