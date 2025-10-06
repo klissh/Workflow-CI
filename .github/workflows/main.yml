@@ -132,32 +132,13 @@ jobs:
             echo "GOOGLE_DRIVE_CREDENTIALS not set, skipping Google Drive upload"
           else
             printf '%s' "$GOOGLE_DRIVE_CREDENTIALS" > credentials.json
-            python - <<'PY'
-import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')
-PY
+            python -c "import json; json.load(open('credentials.json')); print('Credentials JSON is valid.')"
             TRACKING_PATH="${MLFLOW_TRACKING_URI#file:}"
             RUN_ID=$(ls -t "$TRACKING_PATH/0/" | grep -v meta.yaml | head -1)
             MODEL_PATH="$TRACKING_PATH/0/$RUN_ID/artifacts/model"
-            cat > upload_to_drive.py << 'PY'
-import os, sys, shutil
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
-from googleapiclient.http import MediaFileUpload
-
-SCOPES=["https://www.googleapis.com/auth/drive.file"]
-creds=Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
-service=build("drive","v3",credentials=creds)
-model_path=sys.argv[1]
-if os.path.exists(model_path):
-    shutil.make_archive("model_artifacts","zip",model_path)
-    file_metadata={"name": f"model_artifacts_{os.path.basename(os.path.dirname(model_path))}.zip"}
-    media=MediaFileUpload("model_artifacts.zip", mimetype="application/zip")
-    file=service.files().create(body=file_metadata, media_body=media, fields="id").execute()
-    print(f"Model uploaded to Google Drive with ID: {file.get('id')}")
-else:
-    print("Model artifacts not found")
-PY
-            python upload_to_drive.py "$MODEL_PATH" || echo "Google Drive upload failed, continuing..."
+            MODEL_PATH="$MODEL_PATH" python -c "import os, shutil; from googleapiclient.discovery import build; from google.oauth2.service_account import Credentials; from googleapiclient.http import MediaFileUpload; SCOPES=['https://www.googleapis.com/auth/drive.file']; creds=Credentials.from_service_account_file('credentials.json', scopes=SCOPES); service=build('drive','v3',credentials=creds); mp=os.environ.get('MODEL_PATH'); import os as o; print('MODEL_PATH:', mp); 
+if mp and o.path.exists(mp): shutil.make_archive('model_artifacts','zip',mp); file_metadata={'name': f'model_artifacts_{o.path.basename(o.path.dirname(mp))}.zip'}; media=MediaFileUpload('model_artifacts.zip', mimetype='application/zip'); file=service.files().create(body=file_metadata, media_body=media, fields='id').execute(); print('Model uploaded to Google Drive with ID:', file.get('id'))
+else: print('Model artifacts not found')" || echo "Google Drive upload failed, continuing..."
           fi
 
       - name: Build Docker image
