@@ -31,22 +31,7 @@ jobs:
             echo "Using existing creditcard_processed.csv"
           else
             echo "creditcard_processed.csv not found; generating synthetic dataset (CI fallback)"
-            cat > synth_dataset.py << 'PY'
-import numpy as np, pandas as pd
-np.random.seed(42)
-n=500
-df=pd.DataFrame({
-  "age":np.random.randint(20,80,size=n),
-  "avg_glucose_level":np.random.uniform(70,200,size=n),
-  "bmi":np.random.uniform(18,35,size=n),
-  "hypertension":np.random.randint(0,2,size=n),
-  "heart_disease":np.random.randint(0,2,size=n),
-  "smoking_status":np.random.randint(0,3,size=n),
-  "stroke":np.random.randint(0,2,size=n),
-})
-df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
-PY
-            python synth_dataset.py
+            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
             echo "DATASET_PATH=dataset_preprocessing/stroke_dataset_preprocessing.csv" >> $GITHUB_ENV
           fi
 
@@ -87,22 +72,7 @@ PY
             echo "Using creditcard_processed.csv"
           else
             echo "Generating synthetic dataset for MLProject"
-            cat > synth_dataset.py << 'PY'
-import numpy as np, pandas as pd
-np.random.seed(42)
-n=500
-df=pd.DataFrame({
-  "age":np.random.randint(20,80,size=n),
-  "avg_glucose_level":np.random.uniform(70,200,size=n),
-  "bmi":np.random.uniform(18,35,size=n),
-  "hypertension":np.random.randint(0,2,size=n),
-  "heart_disease":np.random.randint(0,2,size=n),
-  "smoking_status":np.random.randint(0,3,size=n),
-  "stroke":np.random.randint(0,2,size=n),
-})
-df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
-PY
-            python synth_dataset.py
+            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
           fi
 
       - name: Run MLflow project
@@ -148,22 +118,7 @@ PY
             echo "Using creditcard_processed.csv"
           else
             echo "Generating synthetic dataset for Advanced run"
-            cat > synth_dataset.py << 'PY'
-import numpy as np, pandas as pd
-np.random.seed(42)
-n=500
-df=pd.DataFrame({
-  "age":np.random.randint(20,80,size=n),
-  "avg_glucose_level":np.random.uniform(70,200,size=n),
-  "bmi":np.random.uniform(18,35,size=n),
-  "hypertension":np.random.randint(0,2,size=n),
-  "heart_disease":np.random.randint(0,2,size=n),
-  "smoking_status":np.random.randint(0,3,size=n),
-  "stroke":np.random.randint(0,2,size=n),
-})
-df.to_csv("dataset_preprocessing/stroke_dataset_preprocessing.csv", index=False)
-PY
-            python synth_dataset.py
+            python -c "import numpy as np, pandas as pd; np.random.seed(42); n=500; df=pd.DataFrame({'age':np.random.randint(20,80,size=n),'avg_glucose_level':np.random.uniform(70,200,size=n),'bmi':np.random.uniform(18,35,size=n),'hypertension':np.random.randint(0,2,size=n),'heart_disease':np.random.randint(0,2,size=n),'smoking_status':np.random.randint(0,3,size=n),'stroke':np.random.randint(0,2,size=n)}); df.to_csv('dataset_preprocessing/stroke_dataset_preprocessing.csv', index=False)"
           fi
 
       - name: Run MLflow project (generate artifacts)
