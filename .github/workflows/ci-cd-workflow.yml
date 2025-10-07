@@ -1,17 +1,17 @@
-# Nama Workflow: Mencakup semua kriteria (Basic, Skilled, Advanced)
-name: 'ML Model CI Workflow (Complete)'
+# Nama Workflow: Final Lengkap untuk Kriteria Basic, Skilled, Advanced
+name: 'ML Model CI Workflow (Final)'
 
-# Trigger: Dijalankan saat ada push ke branch 'main' atau secara manual
+# Trigger: Dijalankan HANYA saat ada perubahan di dalam folder MLProject
+# atau dapat dijalankan secara manual
 on:
   push:
     branches: [ main ]
     paths:
-      - 'MLProject/**' # Hanya aktif jika ada perubahan di folder MLProject
+      - 'MLProject/**'  # Pastikan path ini sesuai dengan struktur repo Anda
   workflow_dispatch:
 
-# Jobs: Satu job tunggal bernama 'build' yang melakukan semua tugas
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,74 +28,62 @@ jobs:
           
       # Tahap 3: Menginstal semua dependensi dari file conda.yaml
       - name: Install dependencies
-        run: conda env create -f MLProject/conda.yaml --name credit-scoring-env
+        # Pastikan path ke file conda.yaml sudah benar
+        run: conda env create -f MLProject/conda.yaml --name mlflow-credit-scoring-env
         
       # Tahap 4: Menjalankan skrip training model (Memenuhi Kriteria BASIC)
       - name: Run training script
         shell: bash -l {0} # Diperlukan agar `conda run` dapat diakses
         run: |
-          echo "[BASIC] Memulai training model menggunakan 'mlflow run'..."
-          conda run -n credit-scoring-env mlflow run MLProject
-          echo "[BASIC] Training selesai. Folder 'mlruns' telah dibuat."
+          echo "[BASIC] Memulai training model..."
+          # Menjalankan MLflow menunjuk ke folder proyek Anda
+          conda run -n mlflow-credit-scoring-env mlflow run MLProject --env-manager=local
+          echo "[BASIC] Training selesai."
 
-      # Tahap 5: Mengunggah artefak ke GitHub (Praktik terbaik untuk Skilled)
-      - name: Upload artifact to GitHub
-        uses: actions/upload-artifact@v4
-        with:
-          name: ml-model-artifacts-github # Nama artefak di GitHub Actions
-          path: mlruns/
-          if-no-files-found: error # Gagal jika folder mlruns tidak ada
-
-      # Tahap 6: Mengompres artefak untuk diunggah ke Google Drive
+      # Tahap 5: Zip dan Unggah Artefak ke Google Drive (Memenuhi Kriteria SKILLED)
       - name: Zip artifacts for Google Drive
-        run: zip -r ml-artifacts.zip mlruns/
+        run: zip -r ml-artifacts-gdrive.zip mlruns/
 
-      # Tahap 7: Mengunggah artefak ke Google Drive (Memenuhi Kriteria SKILLED)
       - name: Upload artifact to Google Drive
         uses: lguibr/simple-google-drive-uploader@v2
         with:
-          credentials: ${{ secrets.GDRIVE_CREDENTIALS_DATA }}
+          # Menggunakan nama secrets yang PERSIS seperti milik Anda
+          credentials: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
           parent-id: ${{ secrets.GDRIVE_PARENT_ID }}
-          file-name: 'ml-artifacts-${{ github.sha }}.zip' # Nama file unik dengan hash commit
-          file-path: 'ml-artifacts.zip'
-          overwrite: 'true' # Timpa file jika namanya sama
-          
-      # Tahap 8: Build dan Push Docker Image (Memenuhi Kriteria ADVANCED)
+          file-name: 'ml-artifacts-${{ github.sha }}.zip'
+          file-path: 'ml-artifacts-gdrive.zip'
+          overwrite: 'true'
+
+      # Tahap 6: Build dan Push Docker Image (Memenuhi Kriteria ADVANCED)
       - name: Build and Push Docker Image
-        # Tahapan ini menggabungkan login, build, dan push dalam satu langkah
+        # Menggunakan nama secrets yang PERSIS seperti milik Anda
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           echo "[ADVANCED] Memulai proses build dan push Docker image..."
           
-          # Login ke Docker Hub menggunakan secrets
-          echo "Logging in to Docker Hub..."
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          # 1. Login ke Docker Hub
+          echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
           
-          # 1. Temukan Run ID terbaru dari hasil training yang baru saja selesai
+          # 2. Temukan Run ID terbaru dari hasil training
           LATEST_RUN_ID=$(ls -t mlruns/0 | head -n 1)
-          echo "Run ID terbaru yang akan digunakan untuk build: $LATEST_RUN_ID"
           
-          # 2. Definisikan Model URI dan Nama Image Docker
+          # 3. Definisikan Model URI dan Nama Image Docker
           MODEL_URI="mlruns/0/$LATEST_RUN_ID/artifacts/model"
-          IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-cicd" # Sesuaikan nama image jika perlu
+          IMAGE_NAME="$DOCKERHUB_USERNAME/credit-scoring-cicd" # Anda bisa ganti nama image ini
           
           echo "Model URI: $MODEL_URI"
           echo "Nama Docker Image: $IMAGE_NAME"
 
-          # 3. Build Docker image menggunakan perintah 'mlflow models build-docker'
-          # Perintah ini secara otomatis membuat Dockerfile dan membangun image
-          echo "Membangun Docker image dengan MLflow..."
-          conda run -n credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
+          # 4. Build Docker image menggunakan 'mlflow models build-docker' (CARA YANG BENAR SESUAI TUGAS)
+          conda run -n mlflow-credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
           
-          echo "Build Docker image selesai."
-          
-          # 4. Push image ke Docker Hub dengan tag 'latest' dan tag commit SHA yang unik
-          echo "Mendorong image ke Docker Hub..."
+          # 5. Push image ke Docker Hub
           docker push "$IMAGE_NAME:latest"
           
-          # Membuat tag unik berdasarkan hash commit untuk versioning yang baik
           GIT_SHA=$(git rev-parse --short HEAD)
           docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
           docker push "$IMAGE_NAME:$GIT_SHA"
           
-          echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub dengan tag 'latest' dan '$GIT_SHA'."
-
+          echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub."
