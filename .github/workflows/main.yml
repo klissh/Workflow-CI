@@ -161,15 +161,34 @@ jobs:
           # 3.1 Pastikan versi protobuf kompatibel dengan MLflow di environment conda
           conda run -n mlflow-credit-scoring-env pip install --upgrade "protobuf<4" "googleapis-common-protos<2"
 
-          # 4. Build Docker image menggunakan 'mlflow models build-docker'
-           conda run -n mlflow-credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -n "$IMAGE_NAME"
-            
-           # 5. Tag dan Push image ke Docker Hub
-           docker tag "$IMAGE_NAME" "$IMAGE_NAME:latest"
-           docker push "$IMAGE_NAME:latest"
-            
-           GIT_SHA=$(git rev-parse --short HEAD)
-           docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
-           docker push "$IMAGE_NAME:$GIT_SHA"
-            
-           echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub."
+          # 4. Build Docker image menggunakan Dockerfile kustom untuk menghindari instalasi Python 3.8 via get-pip
+          DOCKER_DIR="mlflow_docker_ctx"
+          rm -rf "$DOCKER_DIR"
+          mkdir -p "$DOCKER_DIR/model"
+          cp -r "$MODEL_URI" "$DOCKER_DIR/model"
+          cat > "$DOCKER_DIR/Dockerfile" << 'EOF'
+          FROM python:3.12-slim
+          RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+          ENV PYTHONUNBUFFERED=1 PYTHONNOUSERSITE=1
+          WORKDIR /opt/app
+          RUN pip install --no-cache-dir \
+            mlflow==2.16.1 \
+            pandas==2.2.0 \
+            scikit-learn==1.4.0 \
+            "protobuf<4" \
+            "googleapis-common-protos<2"
+          COPY model /opt/model
+          EXPOSE 5000
+          CMD ["mlflow", "models", "serve", "-m", "/opt/model", "--env-manager", "local", "--host", "0.0.0.0", "--port", "5000"]
+          EOF
+
+          docker build -t "$IMAGE_NAME:latest" "$DOCKER_DIR"
+          
+          # 5. Push image ke Docker Hub
+          docker push "$IMAGE_NAME:latest"
+          
+          GIT_SHA=$(git rev-parse --short HEAD)
+          docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
+          docker push "$IMAGE_NAME:$GIT_SHA"
+          
+          echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub."
