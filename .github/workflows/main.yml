@@ -68,25 +68,49 @@ jobs:
         run: |
           python3 -m pip install --upgrade google-api-python-client google-auth google-auth-httplib2
           python3 - << 'PY'
-          import json, os, sys
+          import json, os, sys, base64, pathlib
           from google.oauth2.service_account import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
+          def load_sa_info(value: str):
+              v = value.strip()
+              # attempt direct JSON
+              try:
+                  return json.loads(v)
+              except Exception:
+                  pass
+              # attempt base64-encoded JSON
+              try:
+                  decoded = base64.b64decode(v).decode('utf-8')
+                  return json.loads(decoded)
+              except Exception:
+                  pass
+              # attempt file path (if someone put a repo path)
+              p = pathlib.Path(v)
+              if p.suffix.lower() == '.json' and p.exists():
+                  with p.open('r', encoding='utf-8') as f:
+                      return json.load(f)
+              raise ValueError("Provided GOOGLE_DRIVE_CREDENTIALS is neither valid JSON nor base64 JSON; and not a readable JSON file path.")
+
           # Validate secrets
-          creds_json = os.environ.get('GOOGLE_DRIVE_CREDENTIALS', '').strip()
+          creds_raw = os.environ.get('GOOGLE_DRIVE_CREDENTIALS', '').strip()
           folder_id = os.environ.get('GDRIVE_PARENT_ID', '').strip()
-          if not creds_json:
+          if not creds_raw:
               print("ERROR: Secret GOOGLE_DRIVE_CREDENTIALS is empty or not set. Add your Service Account JSON key to repository Secrets.")
               sys.exit(1)
           if not folder_id:
               print("ERROR: Secret GDRIVE_PARENT_ID is empty or not set. Add the target Shared Drive folder ID to repository Secrets.")
               sys.exit(1)
+
           try:
-              creds_info = json.loads(creds_json)
+              creds_info = load_sa_info(creds_raw)
           except Exception as e:
-              print(f"ERROR: Failed to parse GOOGLE_DRIVE_CREDENTIALS as JSON: {e}")
-              print("Tip: paste the full JSON key content (starting with { ... }), not a file path, into the secret.")
+              print(f"ERROR: Failed to read GOOGLE_DRIVE_CREDENTIALS: {e}")
+              print("Tips:")
+              print(" - Paste the full Service Account JSON key content into the secret (starting with { ... }).")
+              print(" - Or store a BASE64 of the JSON key and set that as the secret.")
+              print(" - Do NOT set a local file path; runners won't have your local file.")
               sys.exit(1)
 
           creds = Credentials.from_service_account_info(
