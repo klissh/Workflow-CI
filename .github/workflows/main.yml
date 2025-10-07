@@ -46,14 +46,13 @@ jobs:
         run: zip -r ml-artifacts-gdrive.zip mlruns/
 
       - name: Upload artifact to Google Drive
-        # Menggunakan action alternatif yang aktif dan terawat
-        uses: adevr/upload-google-drive@v1
+        uses: adityak74/google-drive-upload-git-action@main
         with:
-          # Nama parameter disesuaikan dengan action yang baru
           credentials: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
           folderId: ${{ secrets.GDRIVE_PARENT_ID }}
-          fileName: 'ml-artifacts-${{ github.sha }}.zip'
-          source: 'ml-artifacts-gdrive.zip' # Mengganti 'file-path' menjadi 'source'
+          filename: 'ml-artifacts-gdrive.zip'
+          name: 'ml-artifacts-${{ github.sha }}.zip'
+          overwrite: 'true'
 
       # Tahap 6: Build dan Push Docker Image (Memenuhi Kriteria ADVANCED)
       - name: Build and Push Docker Image
