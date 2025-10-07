@@ -38,10 +38,9 @@ jobs:
           auto-update-conda: true
           python-version: "3.12"
           
-      # Tahap 3: Menginstal semua dependensi dari file conda.yaml
+      # Tahap 3: Menginstal semua dependensi dari file environment.yml
       - name: Install dependencies
-        # Pastikan path ke file conda.yaml sudah benar
-        run: conda env create -f MLProject/conda.yaml --name mlflow-credit-scoring-env
+        run: conda env create -f MLProject/environment.yml --name mlflow-credit-scoring-env
         
       # Tahap 4: Menjalankan skrip training model (Memenuhi Kriteria BASIC)
       - name: Run training script
