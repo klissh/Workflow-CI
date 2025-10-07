@@ -162,13 +162,14 @@ jobs:
           conda run -n mlflow-credit-scoring-env pip install --upgrade "protobuf<4" "googleapis-common-protos<2"
 
           # 4. Build Docker image menggunakan 'mlflow models build-docker'
-          conda run -n mlflow-credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
-          
-          # 5. Push image ke Docker Hub
-          docker push "$IMAGE_NAME:latest"
-          
-          GIT_SHA=$(git rev-parse --short HEAD)
-          docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
-          docker push "$IMAGE_NAME:$GIT_SHA"
-          
-          echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub."
+           conda run -n mlflow-credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -n "$IMAGE_NAME" --enable-mlserver
+            
+           # 5. Tag dan Push image ke Docker Hub
+           docker tag "$IMAGE_NAME" "$IMAGE_NAME:latest"
+           docker push "$IMAGE_NAME:latest"
+            
+           GIT_SHA=$(git rev-parse --short HEAD)
+           docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
+           docker push "$IMAGE_NAME:$GIT_SHA"
+            
+           echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub."
