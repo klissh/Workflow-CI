@@ -33,22 +33,51 @@ if __name__ == "__main__":
         print_header("1. Memuat Dataset")
         try:
             data = pd.read_csv(args.data_path)
-            X = data.drop('Class', axis=1)
-            y = data['Class']
+            # Pastikan tidak ada spasi tersembunyi pada nama kolom
+            data.columns = data.columns.str.strip()
             print(f"Dataset berhasil dimuat dari: {args.data_path}")
             print(f"Bentuk data: {data.shape}")
+            print(f"Nama kolom: {list(data.columns)[:10]} ... total {len(data.columns)} kolom")
         except FileNotFoundError:
             print(f"Error: Dataset tidak ditemukan di path: {args.data_path}")
             exit(1)
 
-        # 2. Split Data
-        print_header("2. Memisahkan Data Training dan Testing")
+        # 2. Tentukan kolom target secara robust
+        print_header("2. Menentukan Kolom Target")
+        candidate_targets = ["Class", "class", "Label", "label", "target", "Target", "y"]
+        target_col = next((c for c in candidate_targets if c in data.columns), None)
+        
+        if target_col is None:
+            # Coba cari kolom biner (0/1) sebagai fallback
+            binary_candidates = []
+            for c in data.columns:
+                try:
+                    unique_vals = set(pd.Series(data[c]).dropna().unique())
+                    if unique_vals.issubset({0, 1}) and 1 in unique_vals:
+                        binary_candidates.append(c)
+                except Exception:
+                    pass
+            if binary_candidates:
+                target_col = binary_candidates[0]
+                print(f"Target tidak ditemukan secara eksplisit. Menggunakan kolom biner: {target_col}")
+            else:
+                print("Error: Kolom target tidak ditemukan. Pastikan ada salah satu dari ['Class','Label','target','y'] atau kolom biner (0/1).")
+                print(f"Daftar kolom saat ini: {list(data.columns)}")
+                exit(1)
+        else:
+            print(f"Menggunakan kolom target: {target_col}")
+        
+        # 3. Split fitur dan target
+        X = data.drop(columns=[target_col])
+        y = data[target_col]
+
+        print_header("3. Memisahkan Data Training dan Testing")
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         print(f"Data training: {X_train.shape[0]} sampel")
         print(f"Data testing: {X_test.shape[0]} sampel")
         
-        # 3. Training Model
-        print_header("3. Melatih Model RandomForestClassifier")
+        # 4. Training Model
+        print_header("4. Melatih Model RandomForestClassifier")
         # Definisikan parameter
         params = {
             'n_estimators': 100,
@@ -64,8 +93,8 @@ if __name__ == "__main__":
         model.fit(X_train, y_train)
         print("Model selesai dilatih.")
         
-        # 4. Evaluasi Model
-        print_header("4. Mengevaluasi Model")
+        # 5. Evaluasi Model
+        print_header("5. Mengevaluasi Model")
         y_pred = model.predict(X_test)
         accuracy = accuracy_score(y_test, y_pred)
         print(f"Akurasi Model: {accuracy:.4f}")
@@ -73,7 +102,7 @@ if __name__ == "__main__":
         # Log metrik ke MLflow
         mlflow.log_metric("accuracy", accuracy)
         
-        # 5. Log Model
+        # 6. Log Model
         print("Menyimpan model ke MLflow...")
         mlflow.sklearn.log_model(
             sk_model=model, 

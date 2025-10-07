@@ -43,7 +43,10 @@ jobs:
       # Tahap 5: Zip dan Unggah Artefak ke Google Drive (Memenuhi Kriteria SKILLED)
       # --- BAGIAN INI TELAH DIPERBAIKI ---
       - name: Zip artifacts for Google Drive
-        run: zip -r ml-artifacts-gdrive.zip mlruns/
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y zip
+          zip -r ml-artifacts-gdrive.zip mlruns/
 
       - name: Upload artifact to Google Drive
         uses: adityak74/google-drive-upload-git-action@main
