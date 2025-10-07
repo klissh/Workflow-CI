@@ -3,5 +3,8 @@ name: CreditScoringCI
 conda_env: conda.yaml
 
 entry_points:
-  main:
-    command: "python modelling.py"
+main:
+parameters:
+# Menambahkan parameter untuk path data dengan nilai default
+data_path: {type: string, default: "dataset_preprocessing/creditcard_processed.csv"}
+command: "python modelling.py --data_path {data_path}"

@@ -1,102 +1,85 @@
 import mlflow
 import pandas as pd
-import sys
+import argparse
 import os
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from sklearn.metrics import accuracy_score, classification_report
+
+# Fungsi untuk mencetak pesan dengan pemisah agar mudah dibaca di log
+def print_header(message):
+    print("\n" + "="*50)
+    print(f" {message}")
+    print("="*50)
 
 if __name__ == "__main__":
-    print("--- Memulai Training Model untuk CI/CD ---", file=sys.stderr)
+    # Setup parser untuk menerima argumen dari command line
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_path", type=str, required=True, help="Path to the processed dataset.")
+    args = parser.parse_args()
 
-    # Konfigurasi MLflow Tracking URI yang aman untuk CI (hindari path Windows)
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-    if tracking_uri:
-        mlflow.set_tracking_uri(tracking_uri)
-    else:
-        if os.getenv("GITHUB_ACTIONS") == "true":
-            # Gunakan lokasi sementara di runner Linux agar tidak bentrok dengan artefak Windows yang ter-commit
-            mlflow.set_tracking_uri("file:/tmp/mlruns")
-        else:
-            # Jalankan lokal di folder proyek
-            mlflow.set_tracking_uri("file:./mlruns")
-    print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}", file=sys.stderr)
-    
-    # Jangan set experiment name karena sudah diatur oleh mlflow run
-    # experiment_name = "CI_CD_Credit_Scoring"
-    # mlflow.set_experiment(experiment_name)
+    print_header("Memulai Training Model untuk CI/CD")
 
-    # 1. Muat Dataset
-    try:
-        data = pd.read_csv("dataset_preprocessing/creditcard_processed.csv")
-        X = data.drop('Class', axis=1)
-        y = data['Class']
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+    # MLflow akan secara otomatis menangani tracking URI di GitHub Actions
+    # jadi kita tidak perlu mengaturnya secara manual di sini.
+    # MLflow run akan membuat folder mlruns di root direktori.
+    print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
+
+    # Memulai MLflow run
+    with mlflow.start_run():
+        print(f"MLflow Run ID: {mlflow.active_run().info.run_id}")
+        
+        # 1. Muat Dataset
+        print_header("1. Memuat Dataset")
+        try:
+            data = pd.read_csv(args.data_path)
+            X = data.drop('Class', axis=1)
+            y = data['Class']
+            print(f"Dataset berhasil dimuat dari: {args.data_path}")
+            print(f"Bentuk data: {data.shape}")
+        except FileNotFoundError:
+            print(f"Error: Dataset tidak ditemukan di path: {args.data_path}")
+            exit(1)
+
+        # 2. Split Data
+        print_header("2. Memisahkan Data Training dan Testing")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+        print(f"Data training: {X_train.shape[0]} sampel")
+        print(f"Data testing: {X_test.shape[0]} sampel")
+        
+        # 3. Training Model
+        print_header("3. Melatih Model RandomForestClassifier")
+        # Definisikan parameter
+        params = {
+            'n_estimators': 100,
+            'max_depth': 10,
+            'random_state': 42
+        }
+        
+        # Log parameter ke MLflow
+        mlflow.log_params(params)
+        print("Parameter yang digunakan:", params)
+
+        model = RandomForestClassifier(**params)
+        model.fit(X_train, y_train)
+        print("Model selesai dilatih.")
+        
+        # 4. Evaluasi Model
+        print_header("4. Mengevaluasi Model")
+        y_pred = model.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        print(f"Akurasi Model: {accuracy:.4f}")
+
+        # Log metrik ke MLflow
+        mlflow.log_metric("accuracy", accuracy)
+        
+        # 5. Log Model
+        print("Menyimpan model ke MLflow...")
+        mlflow.sklearn.log_model(
+            sk_model=model, 
+            artifact_path="model",
+            registered_model_name="CreditScoringCICD" # Nama model untuk Model Registry
         )
-        print("Dataset berhasil dimuat dan dibagi.", file=sys.stderr)
-        print(f"Training set: {X_train.shape}, Test set: {X_test.shape}", file=sys.stderr)
-    except FileNotFoundError:
-        print("Error: Dataset 'creditcard_processed.csv' tidak ditemukan.", file=sys.stderr)
-        sys.exit(1)
+        print("Model berhasil disimpan dengan nama 'CreditScoringCICD'.")
 
-    # 2. Parameter model yang sudah dioptimasi
-    best_params = {
-        'n_estimators': 100,
-        'max_depth': 20,
-        'min_samples_split': 5,
-        'min_samples_leaf': 2,
-        'random_state': 42
-    }
-    
-    # 3. Training Model dengan MLflow tracking
-    # Menggunakan run yang sudah dibuat oleh mlflow run command
-    print("Memulai training model...", file=sys.stderr)
-    
-    # Log parameters
-    mlflow.log_params(best_params)
-    
-    # Training model
-    model = RandomForestClassifier(**best_params)
-    model.fit(X_train, y_train)
-
-    # Prediksi dan evaluasi
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    
-    # Log metrics
-    mlflow.log_metric("accuracy", accuracy)
-    mlflow.log_metric("n_estimators", best_params['n_estimators'])
-    mlflow.log_metric("max_depth", best_params['max_depth'])
-    
-    # Log classification report
-    report = classification_report(y_test, y_pred, output_dict=True)
-    mlflow.log_metric("precision_class_0", report['0']['precision'])
-    mlflow.log_metric("recall_class_0", report['0']['recall'])
-    mlflow.log_metric("f1_score_class_0", report['0']['f1-score'])
-    mlflow.log_metric("precision_class_1", report['1']['precision'])
-    mlflow.log_metric("recall_class_1", report['1']['recall'])
-    mlflow.log_metric("f1_score_class_1", report['1']['f1-score'])
-    
-    # Log feature importance
-    feature_importance = pd.DataFrame({
-        'feature': X_train.columns,
-        'importance': model.feature_importances_
-    }).sort_values('importance', ascending=False)
-    
-    # Save feature importance as artifact
-    feature_importance.to_csv('feature_importance.csv', index=False)
-    mlflow.log_artifact('feature_importance.csv')
-    
-    # Log model
-    mlflow.sklearn.log_model(
-        model, 
-        "model",
-        registered_model_name="CreditScoringModel"
-    )
-    
-    print(f"Model berhasil dilatih dengan akurasi: {accuracy:.4f}", file=sys.stderr)
-    print(f"Model disimpan sebagai artefak MLflow", file=sys.stderr)
-
-    print("--- Training Model Selesai ---", file=sys.stderr)
-    print(f"Model artifacts tersimpan di: mlruns/", file=sys.stderr)
+    print_header("Proses Training Selesai")
