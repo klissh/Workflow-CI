@@ -18,6 +18,17 @@ jobs:
       # Tahap 1: Mengambil kode dari repository
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Ensure Git LFS assets are pulled
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y git-lfs
+          git lfs install
+          git lfs fetch --all
+          git lfs pull
+
 
       # Tahap 2: Menyiapkan lingkungan Conda dan Python
       - name: Set up Miniconda
