@@ -68,22 +68,40 @@ jobs:
         run: |
           python3 -m pip install --upgrade google-api-python-client google-auth google-auth-httplib2
           python3 - << 'PY'
-          import json, os
+          import json, os, sys
           from google.oauth2.service_account import Credentials
           from googleapiclient.discovery import build
           from googleapiclient.http import MediaFileUpload
 
-          creds_info = json.loads(os.environ['GOOGLE_DRIVE_CREDENTIALS'])
+          # Validate secrets
+          creds_json = os.environ.get('GOOGLE_DRIVE_CREDENTIALS', '').strip()
+          folder_id = os.environ.get('GDRIVE_PARENT_ID', '').strip()
+          if not creds_json:
+              print("ERROR: Secret GOOGLE_DRIVE_CREDENTIALS is empty or not set. Add your Service Account JSON key to repository Secrets.")
+              sys.exit(1)
+          if not folder_id:
+              print("ERROR: Secret GDRIVE_PARENT_ID is empty or not set. Add the target Shared Drive folder ID to repository Secrets.")
+              sys.exit(1)
+          try:
+              creds_info = json.loads(creds_json)
+          except Exception as e:
+              print(f"ERROR: Failed to parse GOOGLE_DRIVE_CREDENTIALS as JSON: {e}")
+              print("Tip: paste the full JSON key content (starting with { ... }), not a file path, into the secret.")
+              sys.exit(1)
+
           creds = Credentials.from_service_account_info(
               creds_info,
               scopes=['https://www.googleapis.com/auth/drive']
           )
           service = build('drive', 'v3', credentials=creds)
 
-          folder_id = os.environ['GDRIVE_PARENT_ID']
           name = f"ml-artifacts-{os.environ.get('GITHUB_SHA')}.zip"
+          artifact_path = 'ml-artifacts-gdrive.zip'
+          if not os.path.exists(artifact_path):
+              print(f"ERROR: Artifact '{artifact_path}' not found. Ensure the zip step ran successfully.")
+              sys.exit(1)
 
-          media = MediaFileUpload('ml-artifacts-gdrive.zip', mimetype='application/zip', resumable=True)
+          media = MediaFileUpload(artifact_path, mimetype='application/zip', resumable=True)
           file = service.files().create(
               body={'name': name, 'parents': [folder_id]},
               media_body=media,
