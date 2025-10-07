@@ -7,7 +7,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'MLProjects/**'  # Pastikan path ini sesuai dengan struktur repo Anda
+      - 'MLProject/**'  # Pastikan path ini sesuai dengan struktur repo Anda
   workflow_dispatch:
 
 jobs:
