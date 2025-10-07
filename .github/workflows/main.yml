@@ -60,14 +60,38 @@ jobs:
           sudo apt-get install -y zip
           zip -r ml-artifacts-gdrive.zip mlruns/
 
-      - name: Upload artifact to Google Drive
-        uses: adityak74/google-drive-upload-git-action@main
-        with:
-          credentials: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
-          folderId: ${{ secrets.GDRIVE_PARENT_ID }}
-          filename: 'ml-artifacts-gdrive.zip'
-          name: 'ml-artifacts-${{ github.sha }}.zip'
-          overwrite: 'true'
+      - name: Upload artifact to Shared Drive via Service Account
+        env:
+          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          GDRIVE_PARENT_ID: ${{ secrets.GDRIVE_PARENT_ID }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          python3 -m pip install --upgrade google-api-python-client google-auth google-auth-httplib2
+          python3 - << 'PY'
+          import json, os
+          from google.oauth2.service_account import Credentials
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          creds_info = json.loads(os.environ['GOOGLE_DRIVE_CREDENTIALS'])
+          creds = Credentials.from_service_account_info(
+              creds_info,
+              scopes=['https://www.googleapis.com/auth/drive']
+          )
+          service = build('drive', 'v3', credentials=creds)
+
+          folder_id = os.environ['GDRIVE_PARENT_ID']
+          name = f"ml-artifacts-{os.environ.get('GITHUB_SHA')}.zip"
+
+          media = MediaFileUpload('ml-artifacts-gdrive.zip', mimetype='application/zip', resumable=True)
+          file = service.files().create(
+              body={'name': name, 'parents': [folder_id]},
+              media_body=media,
+              fields='id',
+              supportsAllDrives=True
+          ).execute()
+          print(f"Uploaded file ID: {file['id']}")
+          PY
 
       # Tahap 6: Build dan Push Docker Image (Memenuhi Kriteria ADVANCED)
       - name: Build and Push Docker Image
