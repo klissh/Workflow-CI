@@ -66,8 +66,10 @@ jobs:
           GDRIVE_PARENT_ID: ${{ secrets.GDRIVE_PARENT_ID }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
-          python3 -m pip install --upgrade google-api-python-client google-auth google-auth-httplib2
-          python3 - << 'PY'
+          python3 -m venv .gdvenv
+          source .gdvenv/bin/activate
+          pip install --upgrade google-api-python-client google-auth google-auth-httplib2
+          python - << 'PY'
           import json, os, sys, base64, pathlib
           from google.oauth2.service_account import Credentials
           from googleapiclient.discovery import build
@@ -141,6 +143,7 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
+          export PYTHONNOUSERSITE=1
           echo "[ADVANCED] Memulai proses build dan push Docker image..."
           
           # 1. Login ke Docker Hub
@@ -155,6 +158,9 @@ jobs:
           
           echo "Model URI: $MODEL_URI"
           echo "Nama Docker Image: $IMAGE_NAME"
+
+          # 3.1 Pastikan versi protobuf kompatibel dengan MLflow di environment conda
+          conda run -n mlflow-credit-scoring-env pip install --upgrade "protobuf<4" "googleapis-common-protos<2"
 
           # 4. Build Docker image menggunakan 'mlflow models build-docker'
           conda run -n mlflow-credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
