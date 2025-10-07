@@ -1,91 +1,101 @@
-# Nama Workflow: Satu Alur Kerja untuk Mencakup Semua Kriteria
-name: 'ML CI/CD Workflow (Basic, Skilled, Advanced)'
+# Nama Workflow: Mencakup semua kriteria (Basic, Skilled, Advanced)
+name: 'ML Model CI Workflow (Complete)'
 
 # Trigger: Dijalankan saat ada push ke branch 'main' atau secara manual
 on:
   push:
     branches: [ main ]
     paths:
-      - 'MLProject/**' # Hanya trigger jika ada perubahan di folder MLProject
-  workflow_dispatch: # Memungkinkan trigger manual
+      - 'MLProject/**' # Hanya aktif jika ada perubahan di folder MLProject
+  workflow_dispatch:
 
-# Jobs: Satu job yang melakukan semua tugas secara berurutan
+# Jobs: Satu job tunggal bernama 'build' yang melakukan semua tugas
 jobs:
-  train-archive-and-build:
+  build:
     runs-on: ubuntu-latest
-    
-    defaults:
-      run:
-        working-directory: ./ # Menjalankan semua command dari root direktori
 
     steps:
-      # --- Persiapan Lingkungan ---
-      - name: 1. Checkout Repository
+      # Tahap 1: Mengambil kode dari repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 2. Set up Miniconda
+      # Tahap 2: Menyiapkan lingkungan Conda dan Python
+      - name: Set up Miniconda
         uses: conda-incubator/setup-miniconda@v3
         with:
           auto-update-conda: true
           python-version: "3.12"
           
-      - name: 3. Create Conda Environment from conda.yaml
-        run: |
-          conda env create -f MLProject/conda.yaml --name credit-scoring-env
+      # Tahap 3: Menginstal semua dependensi dari file conda.yaml
+      - name: Install dependencies
+        run: conda env create -f MLProject/conda.yaml --name credit-scoring-env
         
-      # --- Kriteria BASIC Tercapai ---
-      - name: 4. [BASIC] Run MLflow Project to Train Model
-        shell: bash -l {0} # Diperlukan agar `conda run` berfungsi dengan benar
+      # Tahap 4: Menjalankan skrip training model (Memenuhi Kriteria BASIC)
+      - name: Run training script
+        shell: bash -l {0} # Diperlukan agar `conda run` dapat diakses
         run: |
-          echo "Memulai training model..."
+          echo "[BASIC] Memulai training model menggunakan 'mlflow run'..."
           conda run -n credit-scoring-env mlflow run MLProject
-          echo "Training selesai. Folder 'mlruns' telah dibuat."
+          echo "[BASIC] Training selesai. Folder 'mlruns' telah dibuat."
 
-      # --- Kriteria SKILLED Tercapai ---
-      - name: 5. [SKILLED] Upload MLflow Results as Artifact
+      # Tahap 5: Mengunggah artefak ke GitHub (Praktik terbaik untuk Skilled)
+      - name: Upload artifact to GitHub
         uses: actions/upload-artifact@v4
         with:
-          name: ml-artifacts # Nama artefak yang akan diunggah
-          path: mlruns/ # Path folder yang berisi hasil run MLflow
-          if-no-files-found: error # Gagal jika folder mlruns tidak ditemukan
+          name: ml-model-artifacts-github # Nama artefak di GitHub Actions
+          path: mlruns/
+          if-no-files-found: error # Gagal jika folder mlruns tidak ada
 
-      # --- Kriteria ADVANCED Tercapai ---
-      - name: 6. [ADVANCED] Login to Docker Hub
-        uses: docker/login-action@v3
+      # Tahap 6: Mengompres artefak untuk diunggah ke Google Drive
+      - name: Zip artifacts for Google Drive
+        run: zip -r ml-artifacts.zip mlruns/
+
+      # Tahap 7: Mengunggah artefak ke Google Drive (Memenuhi Kriteria SKILLED)
+      - name: Upload artifact to Google Drive
+        uses: lguibr/simple-google-drive-uploader@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: 7. [ADVANCED] Build and Push Docker Image with MLflow
-        shell: bash -l {0}
+          credentials: ${{ secrets.GDRIVE_CREDENTIALS_DATA }}
+          parent-id: ${{ secrets.GDRIVE_PARENT_ID }}
+          file-name: 'ml-artifacts-${{ github.sha }}.zip' # Nama file unik dengan hash commit
+          file-path: 'ml-artifacts.zip'
+          overwrite: 'true' # Timpa file jika namanya sama
+          
+      # Tahap 8: Build dan Push Docker Image (Memenuhi Kriteria ADVANCED)
+      - name: Build and Push Docker Image
+        # Tahapan ini menggabungkan login, build, dan push dalam satu langkah
         run: |
-          echo "Memulai proses build Docker image..."
+          echo "[ADVANCED] Memulai proses build dan push Docker image..."
           
-          # Langkah 1: Temukan Run ID terbaru dari hasil training sebelumnya
-          # Kita masuk ke folder mlruns/0/ dan ambil nama folder (run ID) yang paling baru dibuat
+          # Login ke Docker Hub menggunakan secrets
+          echo "Logging in to Docker Hub..."
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+          
+          # 1. Temukan Run ID terbaru dari hasil training yang baru saja selesai
           LATEST_RUN_ID=$(ls -t mlruns/0 | head -n 1)
-          echo "Run ID terbaru yang akan digunakan: $LATEST_RUN_ID"
+          echo "Run ID terbaru yang akan digunakan untuk build: $LATEST_RUN_ID"
           
-          # Langkah 2: Definisikan Model URI dan Nama Image Docker
+          # 2. Definisikan Model URI dan Nama Image Docker
           MODEL_URI="mlruns/0/$LATEST_RUN_ID/artifacts/model"
           IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/credit-scoring-cicd" # Sesuaikan nama image jika perlu
           
-          echo "Model URI yang digunakan: $MODEL_URI"
+          echo "Model URI: $MODEL_URI"
           echo "Nama Docker Image: $IMAGE_NAME"
-          
-          # Langkah 3: Build Docker image menggunakan perintah MLflow
-          # Perintah ini akan secara otomatis membuat Dockerfile sementara dan membangun image
-          conda run -n credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
 
+          # 3. Build Docker image menggunakan perintah 'mlflow models build-docker'
+          # Perintah ini secara otomatis membuat Dockerfile dan membangun image
+          echo "Membangun Docker image dengan MLflow..."
+          conda run -n credit-scoring-env mlflow models build-docker --model-uri "$MODEL_URI" -t "$IMAGE_NAME:latest" --enable-mlserver
+          
           echo "Build Docker image selesai."
           
-          # Langkah 4: Push image ke Docker Hub dengan tag 'latest' dan tag commit SHA
+          # 4. Push image ke Docker Hub dengan tag 'latest' dan tag commit SHA yang unik
           echo "Mendorong image ke Docker Hub..."
           docker push "$IMAGE_NAME:latest"
           
-          # Membuat tag unik berdasarkan commit hash untuk versioning
+          # Membuat tag unik berdasarkan hash commit untuk versioning yang baik
           GIT_SHA=$(git rev-parse --short HEAD)
           docker tag "$IMAGE_NAME:latest" "$IMAGE_NAME:$GIT_SHA"
           docker push "$IMAGE_NAME:$GIT_SHA"
           
-          echo "Docker image berhasil di-push ke Docker Hub dengan tag 'latest' dan '$GIT_SHA'."
+          echo "[ADVANCED] Docker image berhasil di-push ke Docker Hub dengan tag 'latest' dan '$GIT_SHA'."
+
