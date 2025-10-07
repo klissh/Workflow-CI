@@ -1,13 +1,14 @@
 # Nama Workflow: Final Lengkap untuk Kriteria Basic, Skilled, Advanced
 name: 'ML Model CI Workflow (Final)'
 
-# Trigger: Dijalankan HANYA saat ada perubahan di dalam folder MLProject
+# Trigger: Dijalankan saat ada perubahan di MLProject atau file workflow itu sendiri,
 # atau dapat dijalankan secara manual
 on:
   push:
     branches: [ main ]
     paths:
-      - 'MLProject/**'  # Pastikan path ini sesuai dengan struktur repo Anda
+      - 'MLProject/**'
+      - '.github/workflows/**'
   workflow_dispatch:
 
 jobs:
